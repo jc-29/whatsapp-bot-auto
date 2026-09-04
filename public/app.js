@@ -25,6 +25,7 @@ const webhookSecretInput = document.getElementById('webhook-secret-input');
 const saveConfigBtn = document.getElementById('save-config-btn');
 
 const sheetUrlsInput = document.getElementById('sheet-urls-input');
+const sheetTabInput = document.getElementById('sheet-tab-input');
 const phoneColInput = document.getElementById('phone-col-input');
 const countryCodeInput = document.getElementById('country-code-input');
 const previewSheetBtn = document.getElementById('preview-sheet-btn');
@@ -175,6 +176,7 @@ function populateConfigFields(cfg) {
   if (cfg.webhookSecret !== undefined) webhookSecretInput.value = cfg.webhookSecret;
 
   if (cfg.sheets && Array.isArray(cfg.sheets)) sheetUrlsInput.value = cfg.sheets.join('\n');
+  if (cfg.defaultSheetTab !== undefined) sheetTabInput.value = cfg.defaultSheetTab;
   if (cfg.phoneColumn !== undefined) phoneColInput.value = cfg.phoneColumn;
   if (cfg.defaultCountryCode !== undefined) countryCodeInput.value = cfg.defaultCountryCode;
 
@@ -228,6 +230,7 @@ saveConfigBtn.addEventListener('click', () => {
     discordWebhookUrl: discordWebhookInput.value.trim(),
     webhookSecret: webhookSecretInput.value.trim(),
     sheets,
+    defaultSheetTab: sheetTabInput.value.trim(),
     phoneColumn: phoneColInput.value.trim(),
     defaultCountryCode: countryCodeInput.value.trim() || 'US',
     template: templateInput.value,
@@ -244,7 +247,7 @@ previewSheetBtn.addEventListener('click', () => {
     return;
   }
   appendLog(null, `Requesting preview for sheet: ${sheets[0]}`, 'info');
-  socket.emit('fetch_sheet_preview', { sheetUrl: sheets[0] });
+  socket.emit('fetch_sheet_preview', { sheetUrl: sheets[0], sheetName: sheetTabInput.value.trim() });
 });
 
 socket.on('sheet_preview_result', (data) => {
@@ -305,6 +308,7 @@ triggerNowBtn.addEventListener('click', async () => {
   if (confirm(`Are you sure you want to trigger the WhatsApp broadcast to contacts extracted from ${sheets.length} spreadsheet(s)?`)) {
     socket.emit('start_broadcast', {
       sheets,
+      sheetName: sheetTabInput.value.trim(),
       template: templateInput.value,
       phoneColumn: phoneColInput.value.trim(),
       defaultCountryCode: countryCodeInput.value.trim() || 'US',

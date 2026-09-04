@@ -68,9 +68,24 @@ const PORT = process.env.PORT || 3000;
 let isClientReady = false;
 let clientInfo = null;
 
+// Detect system Chromium path dynamically for Linux / Docker / Render containers
+let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+if (!executablePath) {
+  if (fs.existsSync('/usr/bin/chromium')) executablePath = '/usr/bin/chromium';
+  else if (fs.existsSync('/usr/bin/chromium-browser')) executablePath = '/usr/bin/chromium-browser';
+}
+
+console.log('Puppeteer Executable Path:', executablePath || 'Default Puppeteer bundled Chromium');
+
 const client = new Client({
   authStrategy: new LocalAuth(),
+  webVersionCache: {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+  },
   puppeteer: {
+    headless: true,
+    executablePath: executablePath || undefined,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -78,7 +93,11 @@ const client = new Client({
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--disable-gpu'
+      '--single-process',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-component-update',
+      '--js-flags="--max-old-space-size=256"'
     ]
   }
 });
@@ -170,15 +189,15 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
 
   logMessage(`Starting Google Spreadsheet processing (${sheetsToProcess.length} sheet(s))...`, 'info');
 
-  let allContacts = [];
-  
+  const targetTabName = overrideParams.targetSheetTab || overrideParams.sheetName || config.defaultSheetTab || '';
+
   // 1. Fetch & extract contacts from all sheets
   for (const sheetUrl of sheetsToProcess) {
     if (!sheetUrl || !sheetUrl.trim()) continue;
     try {
-      logMessage(`Fetching sheet: ${sheetUrl}`, 'info');
-      const { headers, rows, totalRows } = await fetchSheetData(sheetUrl);
-      logMessage(`Fetched ${totalRows} rows from spreadsheet. Headers: ${headers.join(', ')}`, 'success');
+      logMessage(`Fetching sheet: ${sheetUrl}${targetTabName ? ` (Tab: ${targetTabName})` : ''}`, 'info');
+      const { headers, rows, totalRows } = await fetchSheetData(sheetUrl, { sheetName: targetTabName });
+      logMessage(`Fetched ${totalRows} rows from spreadsheet tab. Headers: ${headers.join(', ')}`, 'success');
 
       const phoneCol = findPhoneColumn(headers, specifiedPhoneCol);
       if (!phoneCol) {
