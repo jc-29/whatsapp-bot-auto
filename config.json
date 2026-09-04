@@ -1,0 +1,15 @@
+{
+  "sheets": [
+    "https://docs.google.com/spreadsheets/d/173nETrA4MmdmJNdJPdpKx1huOZNQ0DIqKzEycNiIyEc/edit?gid=661199801#gid=661199801"
+  ],
+  "phoneColumn": "Contact",
+  "template": "REMINDER: you have a @jombolakl session with us TODAY🔛, Saturday session, 8v8\n\n⏳MEET: 4:45PM\n⚽  5PM-6:30PM\n🙋‍♂️HOST: Uva\n👟: TURF ✅, FUTSAL ✅ , BOOTS✅\n\nWAZE:📍163 DO ARENA (take staircase up near mr DIY)\nhttps://g.co/kgs/vmVm44\n\nGAME TODAY IS FULLY RECORDED AND STREAMED LIVE\n\nPLEASE TAKE NOTE IT STARTS AT 5PM YA!!!",
+  "codeword": "#STARTBROADCAST",
+  "defaultCountryCode": "MY",
+  "delayBetweenMessagesMs": 3000,
+  "adminNumbers": [],
+  "telegramToken": "8720432447:AAFUhG_B54lgYLPBwTf99QXow2XdYynrcQI",
+  "telegramChatId": "",
+  "discordWebhookUrl": "",
+  "webhookSecret": "secret-codeword-123"
+}

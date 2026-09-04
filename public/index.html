@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Spreadsheet & Codeword Automation Bot</title>
+  <meta name="description" content="Free WhatsApp automation tool that reads Google Spreadsheets, substitutes dynamic message templates, and sends messages when activated via codewords on WhatsApp, Telegram, Discord, or Webhooks.">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-wrapper">
+
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <i class="fa-brands fa-whatsapp"></i>
+        </div>
+        <div class="logo-text">
+          <h1>Spreadsheet<span class="highlight">Bot</span></h1>
+          <span class="subtitle">WhatsApp & Codeword Automation</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div id="status-badge" class="status-badge badge-connecting">
+          <span class="dot"></span>
+          <span class="status-text">Connecting to Server...</span>
+        </div>
+        <button id="logout-btn" class="btn btn-outline-danger btn-sm" style="display: none;">
+          <i class="fa-solid fa-right-from-bracket"></i> Unlink Session
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Dashboard Layout -->
+    <main class="dashboard-grid">
+
+      <!-- Left Column: Authentication & Configuration -->
+      <section class="grid-col left-col">
+
+        <!-- WhatsApp Authentication Card -->
+        <div class="card glass-card" id="auth-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-qrcode icon-accent"></i> WhatsApp Web Scanner</h3>
+            <span class="card-tag">Required</span>
+          </div>
+          <div class="card-body">
+            <div id="qr-box" class="qr-box">
+              <div id="qr-spinner" class="spinner-container">
+                <div class="spinner"></div>
+                <p>Initializing WhatsApp session...</p>
+              </div>
+              <img id="qrcode" src="" alt="WhatsApp QR Code" style="display: none;" />
+              <div id="ready-status" class="ready-status" style="display: none;">
+                <div class="avatar-circle"><i class="fa-solid fa-user-check"></i></div>
+                <h4 id="user-pushname">WhatsApp Ready</h4>
+                <p id="user-number" class="text-muted">+0000000000</p>
+                <div class="badge-success-pill"><i class="fa-solid fa-circle-check"></i> Session Active</div>
+              </div>
+            </div>
+            <p id="qr-instructions" class="help-text">
+              <i class="fa-solid fa-circle-info"></i> Open WhatsApp on your phone &gt; Linked Devices &gt; Scan QR Code.
+            </p>
+          </div>
+        </div>
+
+        <!-- Codeword & Multi-Platform Trigger Settings Card -->
+        <div class="card glass-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-bolt icon-accent"></i> Codeword & Trigger Settings</h3>
+            <span class="card-tag tag-free">100% Free</span>
+          </div>
+          <div class="card-body">
+            
+            <div class="form-group">
+              <label for="codeword-input">
+                Trigger Codeword 
+                <span class="tooltip-icon" title="Sending this exact phrase in WhatsApp, Telegram, or Webhook will automatically start fetching Google Sheets & sending messages!"><i class="fa-solid fa-circle-question"></i></span>
+              </label>
+              <div class="input-with-icon">
+                <i class="fa-solid fa-key input-icon"></i>
+                <input type="text" id="codeword-input" class="form-control" placeholder="#STARTBROADCAST or RUN_BOT" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="admin-numbers-input">
+                WhatsApp Admin Numbers (Comma Separated)
+              </label>
+              <input type="text" id="admin-numbers-input" class="form-control" placeholder="e.g. +60123456789, +1987654321 (Leave empty for all)" />
+              <span class="help-text">Only these numbers can activate the bot via WhatsApp message.</span>
+            </div>
+
+            <!-- Accordion / Collapsible Platform Token Settings -->
+            <details class="platform-settings-accordion">
+              <summary><i class="fa-brands fa-telegram icon-telegram"></i> Telegram & Discord Bot Settings</summary>
+              <div class="accordion-content">
+                <div class="form-group">
+                  <label for="telegram-token-input">Telegram Bot Token (Free)</label>
+                  <input type="text" id="telegram-token-input" class="form-control" placeholder="123456789:ABCdefGHIjklMNOpqrs..." />
+                </div>
+                <div class="form-group">
+                  <label for="telegram-chatid-input">Telegram Chat ID (Alerts)</label>
+                  <input type="text" id="telegram-chatid-input" class="form-control" placeholder="e.g. 987654321" />
+                </div>
+                <div class="form-group">
+                  <label for="discord-webhook-input">Discord Webhook URL</label>
+                  <input type="text" id="discord-webhook-input" class="form-control" placeholder="https://discord.com/api/webhooks/..." />
+                </div>
+                <div class="form-group">
+                  <label for="webhook-secret-input">HTTP Webhook Secret</label>
+                  <input type="text" id="webhook-secret-input" class="form-control" placeholder="secret-key-123" />
+                </div>
+              </div>
+            </details>
+
+            <button id="save-config-btn" class="btn btn-secondary w-100 mt-3">
+              <i class="fa-solid fa-floppy-disk"></i> Save Trigger Configurations
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Column: Google Sheets Manager & Template Editor -->
+      <section class="grid-col right-col">
+
+        <!-- Google Spreadsheets Manager Card -->
+        <div class="card glass-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-table-cells icon-accent"></i> Google Spreadsheets Manager</h3>
+            <button id="preview-sheet-btn" class="btn btn-sm btn-outline">
+              <i class="fa-solid fa-magnifying-glass"></i> Test / Preview Sheet
+            </button>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label for="sheet-urls-input">
+                Google Spreadsheet URLs (One per line)
+              </label>
+              <textarea id="sheet-urls-input" rows="3" class="form-control code-font" placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0"></textarea>
+              <span class="help-text">Make sure the sheet permission is set to <strong>"Anyone with the link can view"</strong>.</span>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col-6">
+                <label for="phone-col-input">Phone Number Column</label>
+                <input type="text" id="phone-col-input" class="form-control" placeholder="Phone (Auto-detected if empty)" />
+              </div>
+              <div class="form-group col-6">
+                <label for="country-code-input">Default Country Code</label>
+                <input type="text" id="country-code-input" class="form-control" placeholder="US, MY, IN, UK..." />
+              </div>
+            </div>
+
+            <!-- Sheet Preview Modal / Box -->
+            <div id="sheet-preview-box" class="sheet-preview-box" style="display: none;">
+              <div class="preview-header">
+                <span><i class="fa-solid fa-table"></i> Sheet Data Preview</span>
+                <span id="preview-total-rows" class="badge-info">0 rows</span>
+              </div>
+              <div class="table-responsive">
+                <table id="preview-table" class="preview-table">
+                  <thead></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="available-tags-wrapper">
+                <span class="tag-title">Detected Placeholder Tags:</span>
+                <div id="detected-tags-chips" class="chips-container"></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Template Message & Attachment Editor -->
+        <div class="card glass-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-pen-to-square icon-accent"></i> Message Template & Media</h3>
+          </div>
+          <div class="card-body">
+            
+            <div class="form-group">
+              <label for="template-input">
+                Message Template (Supports Dynamic Tags)
+              </label>
+              <div class="tag-insert-bar">
+                <span class="tag-label">Click tag to insert:</span>
+                <span class="tag-chip" onclick="insertTag('{Name}')">{Name}</span>
+                <span class="tag-chip" onclick="insertTag('{Phone}')">{Phone}</span>
+                <span class="tag-chip" onclick="insertTag('{Status}')">{Status}</span>
+                <span class="tag-chip" onclick="insertTag('{Account ID}')">{Account ID}</span>
+                <span class="tag-chip" onclick="insertTag('{Date}')">{Date}</span>
+              </div>
+              <textarea id="template-input" rows="5" class="form-control" placeholder="Hello {Name}, your status is {Status}..."></textarea>
+            </div>
+
+            <!-- Live Message Preview -->
+            <div class="template-live-preview">
+              <div class="preview-label"><i class="fa-brands fa-whatsapp"></i> Live WhatsApp Preview</div>
+              <div class="whatsapp-bubble" id="whatsapp-preview-text">
+                Hello <strong>John Doe</strong>, your status is <strong>Active</strong>...
+              </div>
+            </div>
+
+            <div class="form-row mt-3">
+              <div class="form-group col-7">
+                <label for="media-file-input"><i class="fa-solid fa-paperclip"></i> Attach Media (Optional)</label>
+                <input type="file" id="media-file-input" class="form-control-file" accept="image/*,video/*,application/pdf" multiple />
+              </div>
+              <div class="form-group col-5">
+                <label for="delay-input"><i class="fa-solid fa-clock"></i> Anti-Spam Delay</label>
+                <div class="input-suffix">
+                  <input type="number" id="delay-input" class="form-control" value="3000" min="500" step="500" />
+                  <span>ms</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="action-buttons-row mt-4">
+              <button id="trigger-now-btn" class="btn btn-primary btn-lg">
+                <i class="fa-solid fa-paper-plane"></i> Launch Broadcast Now
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- Bottom Full Width Logs & Activity Progress -->
+    <section class="logs-section">
+      <div class="card glass-card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-terminal icon-accent"></i> Live Activity & Broadcast Logs</h3>
+          <div class="logs-controls">
+            <span id="log-count" class="badge-neutral">0 Events</span>
+            <button id="clear-logs-btn" class="btn btn-sm btn-outline-danger">
+              <i class="fa-solid fa-trash-can"></i> Clear Console
+            </button>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <!-- Progress Bar Container -->
+          <div id="progress-container" class="progress-container" style="display: none;">
+            <div class="progress-info">
+              <span id="progress-text">Sending 0 of 0...</span>
+              <span id="progress-percent">0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Log Console -->
+          <div id="logs-box" class="logs-box code-font">
+            <div class="log-entry log-info">[00:00:00] [INFO] System initialized. Ready to connect.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="app-footer">
+      <p>WhatsApp Spreadsheet & Codeword Automation Bot &bull; 100% Free Open-Source Architecture</p>
+    </footer>
+
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
