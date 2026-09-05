@@ -89,8 +89,7 @@ console.log('Puppeteer Executable Path:', executablePath || 'Default Puppeteer b
 const client = new Client({
   authStrategy: new LocalAuth(),
   webVersionCache: {
-    type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018940428-alpha.html'
+    type: 'local'
   },
   puppeteer: {
     headless: true,
@@ -104,25 +103,7 @@ const client = new Client({
       '--no-zygote',
       '--disable-gpu',
       '--disable-extensions',
-      '--disable-component-update',
-      '--disable-background-networking',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-breakpad',
-      '--disable-component-extensions-with-background-pages',
-      '--disable-default-apps',
-      '--disable-features=Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints',
-      '--disable-ipc-flooding-protection',
-      '--disable-notifications',
-      '--disable-renderer-backgrounding',
-      '--disable-sync',
-      '--force-color-profile=srgb',
-      '--disk-cache-size=1',
-      '--media-cache-size=1',
-      '--disable-gpu-program-cache',
-      '--disable-gpu-shader-disk-cache',
-      '--aggressive-cache-discard',
-      '--js-flags="--max-old-space-size=96"'
+      '--disable-component-update'
     ]
   }
 });
