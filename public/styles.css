@@ -60,6 +60,11 @@ body {
   padding: 20px 24px 40px;
 }
 
+/* Hide dashboard layout by default when logged out */
+body.logged-out .app-wrapper {
+  display: none !important;
+}
+
 /* Header */
 .app-header {
   display: flex;

@@ -69,6 +69,10 @@ ISC License. Completely free and open-source.
 
 ### If the bot takes too long to load the QR code, or gives an error message regarding launching browser
 
+## ssh into the Ubuntu server
+## ssh-key-2026-09-04.key is located in /Downloads
+ ssh -i ssh-key-2026-09-04.key ubuntu@149.118.150.62
+
 cd ~/whatsapp-bot-auto
 # 1. Pull updated code
 git reset --hard origin/main

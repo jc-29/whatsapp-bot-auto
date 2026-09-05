@@ -16,7 +16,10 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <div class="app-wrapper">
+  <div id="dashboard-root"></div>
+
+  <template id="dashboard-template">
+    <div class="app-wrapper">
 
     <!-- Top Navigation Header -->
     <header class="app-header">
@@ -304,6 +307,7 @@
     </footer>
 
   </div>
+  </template>
 
   <!-- Fullscreen Glassmorphism Login Modal Overlay -->
   <div id="login-modal" class="login-modal-overlay" style="display: flex;">
