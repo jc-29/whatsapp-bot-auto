@@ -117,15 +117,24 @@ const client = new Client({
       '--disable-renderer-backgrounding',
       '--disable-sync',
       '--force-color-profile=srgb',
-      '--metrics-recording-only',
-      '--no-default-browser-check',
-      '--no-pings',
-      '--password-store=basic',
-      '--use-gl=swiftshader',
-      '--js-flags="--max-old-space-size=128"'
+      '--disk-cache-size=1',
+      '--media-cache-size=1',
+      '--disable-gpu-program-cache',
+      '--disable-gpu-shader-disk-cache',
+      '--aggressive-cache-discard',
+      '--js-flags="--max-old-space-size=96"'
     ]
   }
 });
+
+// Periodic garbage collection helper
+setInterval(() => {
+  if (global.gc) {
+    try {
+      global.gc();
+    } catch (e) {}
+  }
+}, 30000);
 
 // Logging & Socket Emission helper
 function logMessage(text, type = 'info') {
@@ -215,6 +224,7 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
   logMessage(`Starting Google Spreadsheet processing (${sheetsToProcess.length} sheet(s))...`, 'info');
 
   const targetTabName = overrideParams.targetSheetTab || overrideParams.sheetName || config.defaultSheetTab || '';
+  let allContacts = [];
 
   // 1. Fetch & extract contacts from all sheets
   for (const sheetUrl of sheetsToProcess) {
