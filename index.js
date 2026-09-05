@@ -104,7 +104,25 @@ const client = new Client({
       '--no-zygote',
       '--disable-gpu',
       '--disable-extensions',
-      '--disable-component-update'
+      '--disable-component-update',
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-breakpad',
+      '--disable-component-extensions-with-background-pages',
+      '--disable-default-apps',
+      '--disable-features=Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints',
+      '--disable-ipc-flooding-protection',
+      '--disable-notifications',
+      '--disable-renderer-backgrounding',
+      '--disable-sync',
+      '--force-color-profile=srgb',
+      '--metrics-recording-only',
+      '--no-default-browser-check',
+      '--no-pings',
+      '--password-store=basic',
+      '--use-gl=swiftshader',
+      '--js-flags="--max-old-space-size=128"'
     ]
   }
 });
