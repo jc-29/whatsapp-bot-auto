@@ -6,14 +6,58 @@ const { Server } = require('socket.io');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const crypto = require('crypto');
+const https = require('https');
 const dotenv = require('dotenv');
 
 dotenv.config();
+
+// Global process exception handlers to prevent Puppeteer / WWebJS navigation warnings from killing the process
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ [UNCAUGHT EXCEPTION WORKAROUND]:', err ? (err.stack || err.message || err) : 'Unknown error');
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ [UNHANDLED REJECTION WORKAROUND]:', reason ? (reason.stack || reason.message || reason) : 'Unknown rejection');
+});
 
 const { fetchSheetData, findPhoneColumn, substituteTemplate } = require('./lib/sheets');
 const TriggerManager = require('./lib/triggers');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
+
+// Session storage: token -> { user, email, picture, authType, createdAt }
+const validSessions = new Map();
+
+function createSession(userInfo) {
+  const token = crypto.randomBytes(32).toString('hex');
+  validSessions.set(token, {
+    ...userInfo,
+    createdAt: Date.now()
+  });
+  return token;
+}
+
+function verifyGoogleToken(idToken) {
+  return new Promise((resolve, reject) => {
+    const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+    https.get(url, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          if (data.error || data.error_description) {
+            return reject(new Error(data.error_description || data.error));
+          }
+          resolve(data);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }).on('error', (err) => reject(err));
+  });
+}
 
 // Default config structure
 const defaultConfig = {
@@ -24,10 +68,11 @@ const defaultConfig = {
   defaultCountryCode: "US",
   delayBetweenMessagesMs: 3000,
   adminNumbers: [],
-  telegramToken: "",
-  telegramChatId: "",
-  discordWebhookUrl: "",
-  webhookSecret: "secret-codeword-123"
+  webhookSecret: "secret-codeword-123",
+  authRequired: true,
+  adminPassword: "admin",
+  googleClientId: "",
+  allowedEmails: []
 };
 
 // Load or create config.json
@@ -70,6 +115,47 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
+
+// Express Error Handling Middleware for JSON parsing errors
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ success: false, error: 'Invalid JSON payload in request' });
+  }
+  next(err);
+});
+
+// Express Middleware for API protection
+function verifyAuthMiddleware(req, res, next) {
+  if (!config.authRequired) return next();
+
+  let token = null;
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (req.headers['x-auth-token']) {
+    token = req.headers['x-auth-token'];
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (token && validSessions.has(token)) {
+    req.user = validSessions.get(token);
+    return next();
+  }
+
+  return res.status(401).json({ success: false, error: 'Unauthorized access. Please login.' });
+}
+
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+  if (!config.authRequired) return next();
+  const token = socket.handshake.auth && socket.handshake.auth.token;
+  if (token && validSessions.has(token)) {
+    socket.user = validSessions.get(token);
+    return next();
+  }
+  return next(new Error('Authentication failed: Invalid or missing token'));
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -356,11 +442,89 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
 
 // REST API Endpoints
 
-app.get('/api/config', (req, res) => {
+// Public Auth Endpoints
+app.post('/api/auth/google', async (req, res) => {
+  const { idToken } = req.body;
+  if (!idToken) {
+    return res.status(400).json({ success: false, error: 'idToken is required' });
+  }
+
+  try {
+    const payload = await verifyGoogleToken(idToken);
+
+    // Check Client ID if configured
+    if (config.googleClientId && payload.aud !== config.googleClientId) {
+      return res.status(401).json({ success: false, error: 'Google Client ID mismatch' });
+    }
+
+    const email = payload.email ? payload.email.toLowerCase() : '';
+    // Check allowed emails if configured
+    if (config.allowedEmails && config.allowedEmails.length > 0) {
+      const allowed = config.allowedEmails.map(e => e.trim().toLowerCase()).filter(Boolean);
+      if (!allowed.includes(email)) {
+        return res.status(403).json({ success: false, error: `Access denied. Email (${email}) is not authorized.` });
+      }
+    }
+
+    const userInfo = {
+      name: payload.name || payload.email,
+      email: payload.email,
+      picture: payload.picture || '',
+      authType: 'google'
+    };
+
+    const token = createSession(userInfo);
+    logMessage(`Google Sign-In successful for ${userInfo.email}`, 'success');
+    res.json({ success: true, token, user: userInfo });
+  } catch (err) {
+    logMessage(`Google authentication failed: ${err.message}`, 'error');
+    res.status(401).json({ success: false, error: `Google Auth Error: ${err.message}` });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { password } = req.body;
+  const adminPass = config.adminPassword || 'admin';
+
+  if (password === adminPass) {
+    const userInfo = {
+      name: 'Admin User',
+      email: 'Passcode Auth',
+      picture: '',
+      authType: 'passcode'
+    };
+    const token = createSession(userInfo);
+    logMessage('Admin passcode login successful', 'success');
+    return res.json({ success: true, token, user: userInfo });
+  }
+
+  logMessage('Failed admin passcode login attempt', 'warning');
+  res.status(401).json({ success: false, error: 'Invalid admin passcode' });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  if (!config.authRequired) {
+    return res.json({ success: true, authRequired: false, user: { name: 'Admin', email: 'Auth Disabled' } });
+  }
+
+  let token = null;
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
+  else if (req.headers['x-auth-token']) token = req.headers['x-auth-token'];
+
+  if (token && validSessions.has(token)) {
+    return res.json({ success: true, authRequired: true, user: validSessions.get(token) });
+  }
+
+  res.status(401).json({ success: false, authRequired: true, error: 'Not authenticated' });
+});
+
+// Protected API Endpoints
+app.get('/api/config', verifyAuthMiddleware, (req, res) => {
   res.json({ success: true, config });
 });
 
-app.post('/api/config', (req, res) => {
+app.post('/api/config', verifyAuthMiddleware, (req, res) => {
   const newConfig = req.body;
   if (!newConfig || typeof newConfig !== 'object') {
     return res.status(400).json({ success: false, error: 'Invalid configuration payload' });
@@ -373,7 +537,7 @@ app.post('/api/config', (req, res) => {
   res.json({ success: true, config });
 });
 
-app.post('/api/sheets/preview', async (req, res) => {
+app.post('/api/sheets/preview', verifyAuthMiddleware, async (req, res) => {
   const { sheetUrl, sheetName } = req.body;
   if (!sheetUrl) {
     return res.status(400).json({ success: false, error: 'sheetUrl is required' });
@@ -424,7 +588,9 @@ app.get('/api/status', (req, res) => {
   res.json({
     success: true,
     isClientReady,
-    clientInfo: clientInfo ? { pushname: clientInfo.pushname, number: clientInfo.wid.user } : null
+    clientInfo: clientInfo ? { pushname: clientInfo.pushname, number: clientInfo.wid.user } : null,
+    authRequired: config.authRequired !== false,
+    googleClientId: config.googleClientId || ''
   });
 });
 
@@ -486,10 +652,11 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start WhatsApp Client & Telegram Bot
+// Start WhatsApp Client
 logMessage('Initializing WhatsApp Web client...', 'info');
-client.initialize();
-triggerManager.initTelegramBot();
+client.initialize().catch(err => {
+  logMessage(`WhatsApp Client initialization error: ${err.message}`, 'error');
+});
 
 server.listen(PORT, () => {
   logMessage(`🚀 Server is running on http://localhost:${PORT}`, 'success');

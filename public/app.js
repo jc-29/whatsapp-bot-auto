@@ -1,15 +1,27 @@
+// State & Auth Token Helper
+function getAuthToken() {
+  return localStorage.getItem('auth_token') || '';
+}
+
+function setAuthToken(token) {
+  if (token) localStorage.setItem('auth_token', token);
+  else localStorage.removeItem('auth_token');
+}
+
 // Socket.IO Client Initialization with Render proxy fallback
 const socket = io({
   transports: ['polling', 'websocket'],
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
-  reconnectionAttempts: Infinity
+  reconnectionAttempts: Infinity,
+  autoConnect: false
 });
 
 // State
 let currentConfig = {};
 let logCount = 0;
+let serverGoogleClientId = '';
 
 // DOM Elements
 const statusBadge = document.getElementById('status-badge');
@@ -21,12 +33,28 @@ const readyStatus = document.getElementById('ready-status');
 const userPushname = document.getElementById('user-pushname');
 const userNumber = document.getElementById('user-number');
 
+// Auth DOM Elements
+const userProfileBadge = document.getElementById('user-profile-badge');
+const userAvatarCircle = document.getElementById('user-avatar-circle');
+const userDisplayName = document.getElementById('user-display-name');
+const userDisplayEmail = document.getElementById('user-display-email');
+const lockScreenBtn = document.getElementById('lock-screen-btn');
+
+const loginModal = document.getElementById('login-modal');
+const googleBtnWrapper = document.getElementById('google-btn-wrapper');
+const passcodeLoginForm = document.getElementById('passcode-login-form');
+const passcodeInput = document.getElementById('passcode-input');
+const loginErrorMsg = document.getElementById('login-error-msg');
+
+// Config Security Elements
+const googleClientIdInput = document.getElementById('google-client-id-input');
+const allowedEmailsInput = document.getElementById('allowed-emails-input');
+const adminPasswordInput = document.getElementById('admin-password-input');
+const authRequiredCheckbox = document.getElementById('auth-required-checkbox');
+
 // Form Elements
 const codewordInput = document.getElementById('codeword-input');
 const adminNumbersInput = document.getElementById('admin-numbers-input');
-const telegramTokenInput = document.getElementById('telegram-token-input');
-const telegramChatidInput = document.getElementById('telegram-chatid-input');
-const discordWebhookInput = document.getElementById('discord-webhook-input');
 const webhookSecretInput = document.getElementById('webhook-secret-input');
 const saveConfigBtn = document.getElementById('save-config-btn');
 
@@ -55,6 +83,171 @@ const progressContainer = document.getElementById('progress-container');
 const progressText = document.getElementById('progress-text');
 const progressPercent = document.getElementById('progress-percent');
 const progressBarFill = document.getElementById('progress-bar-fill');
+
+// Authentication & Session Management
+function showLoginModal(errorMsg = '') {
+  loginModal.style.display = 'flex';
+  if (errorMsg) {
+    loginErrorMsg.style.display = 'block';
+    loginErrorMsg.textContent = errorMsg;
+  } else {
+    loginErrorMsg.style.display = 'none';
+  }
+}
+
+function hideLoginModal() {
+  loginModal.style.display = 'none';
+  loginErrorMsg.style.display = 'none';
+}
+
+function updateAuthUserProfile(user) {
+  if (!user) return;
+  userProfileBadge.style.display = 'flex';
+  userDisplayName.textContent = user.name || 'Admin User';
+  userDisplayEmail.textContent = user.email || 'Authenticated';
+
+  if (user.picture) {
+    userAvatarCircle.innerHTML = `<img src="${user.picture}" alt="Avatar" />`;
+  } else {
+    userAvatarCircle.innerHTML = `<i class="fa-solid fa-user"></i>`;
+  }
+}
+
+function connectSocketWithToken() {
+  const token = getAuthToken();
+  socket.auth = { token };
+  if (!socket.connected) {
+    socket.connect();
+  }
+}
+
+async function checkAuthSession() {
+  try {
+    const res = await fetch('/api/status');
+    const statusData = await res.json();
+    
+    serverGoogleClientId = statusData.googleClientId || '';
+    initGoogleSignInSDK(serverGoogleClientId);
+
+    if (!statusData.authRequired) {
+      hideLoginModal();
+      updateAuthUserProfile({ name: 'Admin', email: 'Auth Disabled' });
+      connectSocketWithToken();
+      return;
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+      showLoginModal();
+      return;
+    }
+
+    const meRes = await fetch('/api/auth/me', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const meData = await meRes.json();
+
+    if (meData.success) {
+      hideLoginModal();
+      updateAuthUserProfile(meData.user);
+      connectSocketWithToken();
+    } else {
+      setAuthToken('');
+      showLoginModal();
+    }
+  } catch (err) {
+    console.error('Auth verification failed:', err);
+    showLoginModal('Failed to connect to authentication server');
+  }
+}
+
+function initGoogleSignInSDK(clientId) {
+  if (!clientId || typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
+    return;
+  }
+
+  try {
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: window.handleGoogleSignInCallback
+    });
+
+    google.accounts.id.renderButton(
+      document.getElementById('google-btn-wrapper'),
+      { theme: 'filled_blue', size: 'large', width: 280 }
+    );
+  } catch (err) {
+    console.warn('Google Sign-In initialization warning:', err.message);
+  }
+}
+
+// Global Google Sign-In Callback
+window.handleGoogleSignInCallback = async function(response) {
+  if (!response || !response.credential) return;
+
+  try {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: response.credential })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      setAuthToken(data.token);
+      hideLoginModal();
+      updateAuthUserProfile(data.user);
+      connectSocketWithToken();
+    } else {
+      showLoginModal(data.error || 'Google Sign-In failed');
+    }
+  } catch (err) {
+    showLoginModal(`Google Login Error: ${err.message}`);
+  }
+};
+
+// Passcode Form Submit Event
+passcodeLoginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const password = passcodeInput.value;
+  if (!password) return;
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      setAuthToken(data.token);
+      hideLoginModal();
+      updateAuthUserProfile(data.user);
+      connectSocketWithToken();
+    } else {
+      showLoginModal(data.error || 'Invalid passcode');
+    }
+  } catch (err) {
+    showLoginModal(`Login Error: ${err.message}`);
+  }
+});
+
+// Lock Screen / Sign Out Event
+lockScreenBtn.addEventListener('click', () => {
+  setAuthToken('');
+  userProfileBadge.style.display = 'none';
+  if (socket.connected) socket.disconnect();
+  showLoginModal('Session locked. Please log in again.');
+});
+
+// Socket Connect Error
+socket.on('connect_error', (err) => {
+  if (err.message && err.message.includes('Authentication')) {
+    setAuthToken('');
+    showLoginModal('Session expired or unauthorized. Please login again.');
+  }
+});
 
 // Utility Functions
 function updateStatusBadge(state, text) {
@@ -176,10 +369,18 @@ socket.on('config_updated', (cfg) => {
 function populateConfigFields(cfg) {
   if (cfg.codeword !== undefined) codewordInput.value = cfg.codeword;
   if (cfg.adminNumbers) adminNumbersInput.value = Array.isArray(cfg.adminNumbers) ? cfg.adminNumbers.join(', ') : cfg.adminNumbers;
-  if (cfg.telegramToken !== undefined) telegramTokenInput.value = cfg.telegramToken;
-  if (cfg.telegramChatId !== undefined) telegramChatidInput.value = cfg.telegramChatId;
-  if (cfg.discordWebhookUrl !== undefined) discordWebhookInput.value = cfg.discordWebhookUrl;
   if (cfg.webhookSecret !== undefined) webhookSecretInput.value = cfg.webhookSecret;
+
+  if (cfg.googleClientId !== undefined) {
+    googleClientIdInput.value = cfg.googleClientId;
+    if (cfg.googleClientId && cfg.googleClientId !== serverGoogleClientId) {
+      serverGoogleClientId = cfg.googleClientId;
+      initGoogleSignInSDK(serverGoogleClientId);
+    }
+  }
+  if (cfg.allowedEmails) allowedEmailsInput.value = Array.isArray(cfg.allowedEmails) ? cfg.allowedEmails.join(', ') : cfg.allowedEmails;
+  if (cfg.adminPassword !== undefined) adminPasswordInput.value = cfg.adminPassword;
+  if (cfg.authRequired !== undefined) authRequiredCheckbox.checked = !!cfg.authRequired;
 
   if (cfg.sheets && Array.isArray(cfg.sheets)) sheetUrlsInput.value = cfg.sheets.join('\n');
   if (cfg.defaultSheetTab !== undefined) sheetTabInput.value = cfg.defaultSheetTab;
@@ -227,14 +428,16 @@ templateInput.addEventListener('input', updateLivePreview);
 saveConfigBtn.addEventListener('click', () => {
   const sheets = sheetUrlsInput.value.split('\n').map(s => s.trim()).filter(Boolean);
   const adminNumbers = adminNumbersInput.value.split(',').map(s => s.trim()).filter(Boolean);
+  const allowedEmails = allowedEmailsInput.value.split(',').map(s => s.trim()).filter(Boolean);
 
   const updatedConfig = {
     codeword: codewordInput.value.trim(),
     adminNumbers,
-    telegramToken: telegramTokenInput.value.trim(),
-    telegramChatId: telegramChatidInput.value.trim(),
-    discordWebhookUrl: discordWebhookInput.value.trim(),
     webhookSecret: webhookSecretInput.value.trim(),
+    googleClientId: googleClientIdInput.value.trim(),
+    allowedEmails,
+    adminPassword: adminPasswordInput.value.trim() || 'admin',
+    authRequired: authRequiredCheckbox.checked,
     sheets,
     defaultSheetTab: sheetTabInput.value.trim(),
     phoneColumn: phoneColInput.value.trim(),
@@ -344,3 +547,6 @@ clearLogsBtn.addEventListener('click', () => {
   logCount = 0;
   logCountBadge.textContent = '0 Events';
 });
+
+// Initialize Auth Verification on page load
+checkAuthSession();

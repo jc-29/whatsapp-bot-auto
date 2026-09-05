@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WhatsApp Spreadsheet & Codeword Automation Bot</title>
-  <meta name="description" content="Free WhatsApp automation tool that reads Google Spreadsheets, substitutes dynamic message templates, and sends messages when activated via codewords on WhatsApp, Telegram, Discord, or Webhooks.">
+  <meta name="description" content="Free WhatsApp automation tool that reads Google Spreadsheets, substitutes dynamic message templates, and sends messages when activated via codewords on WhatsApp or Webhooks.">
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,6 +12,8 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <link rel="stylesheet" href="styles.css">
+  <!-- Google Identity Services SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <div class="app-wrapper">
@@ -29,6 +31,19 @@
       </div>
 
       <div class="header-actions">
+        <div id="user-profile-badge" class="user-profile-badge" style="display: none;">
+          <div id="user-avatar-circle" class="user-avatar-circle">
+            <i class="fa-solid fa-user"></i>
+          </div>
+          <div class="user-info-text">
+            <span id="user-display-name" class="user-name">User</span>
+            <span id="user-display-email" class="user-email">email@example.com</span>
+          </div>
+          <button id="lock-screen-btn" class="btn btn-sm btn-outline-danger" title="Log Out / Lock Dashboard">
+            <i class="fa-solid fa-lock"></i> Lock
+          </button>
+        </div>
+
         <div id="status-badge" class="status-badge badge-connecting">
           <span class="dot"></span>
           <span class="status-text">Connecting to Server...</span>
@@ -98,25 +113,34 @@
               <span class="help-text">Only these numbers can activate the bot via WhatsApp message.</span>
             </div>
 
-            <!-- Accordion / Collapsible Platform Token Settings -->
+            <div class="form-group">
+              <label for="webhook-secret-input">HTTP Webhook Secret Key</label>
+              <input type="text" id="webhook-secret-input" class="form-control" placeholder="secret-key-123" />
+              <span class="help-text">Used for authenticating external HTTP webhook triggers (`/api/trigger`).</span>
+            </div>
+
+            <!-- Accordion / Collapsible Security & Google OAuth Settings -->
             <details class="platform-settings-accordion">
-              <summary><i class="fa-brands fa-telegram icon-telegram"></i> Telegram & Discord Bot Settings</summary>
+              <summary><i class="fa-solid fa-shield-halved icon-accent"></i> Google Login & Access Security Settings</summary>
               <div class="accordion-content">
                 <div class="form-group">
-                  <label for="telegram-token-input">Telegram Bot Token (Free)</label>
-                  <input type="text" id="telegram-token-input" class="form-control" placeholder="123456789:ABCdefGHIjklMNOpqrs..." />
+                  <label for="google-client-id-input">Google OAuth 2.0 Client ID</label>
+                  <input type="text" id="google-client-id-input" class="form-control" placeholder="1234567890-abcde.apps.googleusercontent.com" />
+                  <span class="help-text">Obtain for free from Google Cloud Console Credentials.</span>
                 </div>
                 <div class="form-group">
-                  <label for="telegram-chatid-input">Telegram Chat ID (Alerts)</label>
-                  <input type="text" id="telegram-chatid-input" class="form-control" placeholder="e.g. 987654321" />
+                  <label for="allowed-emails-input">Allowed Google Emails (Comma Separated)</label>
+                  <input type="text" id="allowed-emails-input" class="form-control" placeholder="yourname@gmail.com (Leave empty for any)" />
                 </div>
                 <div class="form-group">
-                  <label for="discord-webhook-input">Discord Webhook URL</label>
-                  <input type="text" id="discord-webhook-input" class="form-control" placeholder="https://discord.com/api/webhooks/..." />
+                  <label for="admin-password-input">Admin Passcode (Fallback)</label>
+                  <input type="password" id="admin-password-input" class="form-control" placeholder="Default: admin" />
                 </div>
-                <div class="form-group">
-                  <label for="webhook-secret-input">HTTP Webhook Secret</label>
-                  <input type="text" id="webhook-secret-input" class="form-control" placeholder="secret-key-123" />
+                <div class="form-group form-check-group">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="auth-required-checkbox" checked />
+                    <span>Require Authentication for Dashboard Access</span>
+                  </label>
                 </div>
               </div>
             </details>
@@ -279,6 +303,62 @@
       <p>WhatsApp Spreadsheet & Codeword Automation Bot &bull; 100% Free Open-Source Architecture</p>
     </footer>
 
+  </div>
+
+  <!-- Fullscreen Glassmorphism Login Modal Overlay -->
+  <div id="login-modal" class="login-modal-overlay" style="display: flex;">
+    <div class="login-card glass-card">
+      <div class="login-header">
+        <div class="login-icon">
+          <i class="fa-solid fa-shield-halved"></i>
+        </div>
+        <h2>Dashboard Access Required</h2>
+        <p>Sign in with Google or enter Admin Passcode to unlock</p>
+      </div>
+      
+      <div class="login-body">
+        <!-- Google Sign In Container -->
+        <div id="google-btn-wrapper" class="google-btn-wrapper">
+          <div id="g_id_onload"
+               data-client_id=""
+               data-callback="handleGoogleSignInCallback"
+               data-auto_prompt="false">
+          </div>
+          <div class="g_id_signin"
+               data-type="standard"
+               data-size="large"
+               data-theme="dark"
+               data-text="sign_in_with"
+               data-shape="rectangular"
+               data-logo_alignment="left"
+               data-width="280">
+          </div>
+        </div>
+
+        <div class="login-divider" id="login-divider">
+          <span>OR</span>
+        </div>
+
+        <!-- Passcode Login Form -->
+        <form id="passcode-login-form" class="passcode-form">
+          <div class="form-group">
+            <label for="passcode-input"><i class="fa-solid fa-lock"></i> Admin Passcode</label>
+            <div class="input-with-icon">
+              <i class="fa-solid fa-key input-icon"></i>
+              <input type="password" id="passcode-input" class="form-control" placeholder="Enter admin passcode..." required />
+              <button type="submit" class="btn btn-primary btn-passcode-submit">
+                <i class="fa-solid fa-arrow-right"></i>
+              </button>
+            </div>
+          </div>
+          <div id="login-error-msg" class="login-error-msg" style="display: none;"></div>
+        </form>
+      </div>
+
+      <div class="login-footer">
+        <p><i class="fa-solid fa-lock"></i> Protected by Google Identity & Passcode Security</p>
+      </div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
