@@ -66,3 +66,16 @@ http://localhost:3000
 ## 🛡️ License
 
 ISC License. Completely free and open-source.
+
+### If the bot takes too long to load the QR code, or gives an error message regarding launching browser
+
+cd ~/whatsapp-bot-auto
+# 1. Pull updated code
+git reset --hard origin/main
+git pull
+# 2. Stop PM2 and clear any stale Chromium locks
+pm2 stop whatsapp-bot
+rm -rf .wwebjs_auth/session/Singleton*
+# 3. Start PM2 cleanly
+export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+pm2 start index.js --name "whatsapp-bot"
