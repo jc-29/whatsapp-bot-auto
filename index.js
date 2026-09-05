@@ -57,7 +57,16 @@ let config = loadConfig();
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { maxHttpBufferSize: 5e7 }); // 50MB
+const io = new Server(server, {
+  maxHttpBufferSize: 5e7, // 50MB
+  pingInterval: 10000,   // Ping every 10 seconds to keep Render proxy alive
+  pingTimeout: 5000,     // Timeout after 5 seconds
+  transports: ['polling', 'websocket'],
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());

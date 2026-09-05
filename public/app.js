@@ -1,5 +1,11 @@
-// Socket.IO Client Initialization
-const socket = io();
+// Socket.IO Client Initialization with Render proxy fallback
+const socket = io({
+  transports: ['polling', 'websocket'],
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  reconnectionAttempts: Infinity
+});
 
 // State
 let currentConfig = {};
