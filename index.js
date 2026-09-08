@@ -292,6 +292,7 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
 
   const targetTabName = overrideParams.targetSheetTab || overrideParams.sheetName || config.defaultSheetTab || '';
   let allContacts = [];
+  const seenRawDigits = new Set();
 
   // 1. Fetch & extract contacts from all sheets
   for (const sheetUrl of sheetsToProcess) {
@@ -312,8 +313,19 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
       for (const row of rows) {
         const rawPhone = row[phoneCol];
         if (rawPhone && String(rawPhone).trim()) {
+          const trimmedPhone = String(rawPhone).trim();
+          const digits = trimmedPhone.replace(/\D/g, '');
+
+          // Deduplicate duplicate numbers during extraction
+          if (digits) {
+            if (seenRawDigits.has(digits)) {
+              continue;
+            }
+            seenRawDigits.add(digits);
+          }
+
           allContacts.push({
-            rawPhone: String(rawPhone).trim(),
+            rawPhone: trimmedPhone,
             rowData: row,
             sheetUrl
           });
@@ -383,10 +395,13 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
 
     // Deduplicate
     if (processedJids.has(formattedJid)) {
+      failCount++;
       logMessage(`[${i + 1}/${allContacts.length}] ⏭️ ${rawPhone} (${formattedJid}): Duplicate number skipped`, 'warning');
       io.emit('message_status', { index: i + 1, total: allContacts.length, number: rawPhone, status: 'skipped', reason: 'Duplicate number' });
       continue;
     }
+
+    processedJids.add(formattedJid);
 
     // Replace template variables
     const finalMessageText = substituteTemplate(messageTemplate, rowData);
@@ -401,8 +416,6 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
         io.emit('message_status', { index: i + 1, total: allContacts.length, number: rawPhone, status: 'skipped', reason });
         continue;
       }
-
-      processedJids.add(formattedJid);
 
       // Send Media or Text Message
       if (msgMedias.length > 0) {
