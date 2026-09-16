@@ -29,7 +29,7 @@ let statusBadge, logoutBtn, qrBox, qrSpinner, qrCodeImg, readyStatus, userPushna
 let userProfileBadge, userAvatarCircle, userDisplayName, userDisplayEmail, lockScreenBtn;
 let googleClientIdInput, allowedEmailsInput, adminPasswordInput, authRequiredCheckbox;
 let codewordInput, adminNumbersInput, webhookSecretInput, saveConfigBtn;
-let sheetUrlsInput, sheetTabInput, phoneColInput, countryCodeInput, previewSheetBtn;
+let sheetUrlsInput, sheetTabInput, phoneColInput, countryCodeInput, previewSheetBtn, directPhoneListInput, skipPhoneListInput;
 let sheetPreviewBox, previewTotalRows, previewTable, detectedTagsChips;
 let templateInput, whatsappPreviewText, mediaFileInput, delayInput, triggerNowBtn;
 let logsBox, logCountBadge, clearLogsBtn;
@@ -91,6 +91,8 @@ function bindDashboardElements() {
   phoneColInput = document.getElementById('phone-col-input');
   countryCodeInput = document.getElementById('country-code-input');
   previewSheetBtn = document.getElementById('preview-sheet-btn');
+  directPhoneListInput = document.getElementById('direct-phone-list-input');
+  skipPhoneListInput = document.getElementById('skip-phone-list-input');
 
   sheetPreviewBox = document.getElementById('sheet-preview-box');
   previewTotalRows = document.getElementById('preview-total-rows');
@@ -169,36 +171,39 @@ function connectSocketWithToken() {
 
 async function checkAuthSession() {
   try {
-    const res = await fetch('/api/status');
-    const statusData = await res.json();
-    
-    serverGoogleClientId = statusData.googleClientId || '';
-    initGoogleSignInSDK(serverGoogleClientId);
-
-    if (!statusData.authRequired) {
-      hideLoginModal();
-      updateAuthUserProfile({ name: 'Admin', email: 'Auth Disabled' });
-      connectSocketWithToken();
-      return;
-    }
-
     const token = getAuthToken();
-    if (!token) {
-      showLoginModal();
-      return;
+    const requests = [
+      fetch('/api/status').then(r => r.json()).catch(() => null)
+    ];
+
+    if (token) {
+      requests.push(
+        fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } })
+          .then(r => r.json())
+          .catch(() => null)
+      );
     }
 
-    const meRes = await fetch('/api/auth/me', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const meData = await meRes.json();
+    const [statusData, meData] = await Promise.all(requests);
 
-    if (meData.success) {
+    if (statusData) {
+      serverGoogleClientId = statusData.googleClientId || '';
+      initGoogleSignInSDK(serverGoogleClientId);
+
+      if (statusData.authRequired === false) {
+        hideLoginModal();
+        updateAuthUserProfile({ name: 'Admin', email: 'Auth Disabled' });
+        connectSocketWithToken();
+        return;
+      }
+    }
+
+    if (meData && meData.success) {
       hideLoginModal();
       updateAuthUserProfile(meData.user);
       connectSocketWithToken();
     } else {
-      setAuthToken('');
+      if (token) setAuthToken('');
       showLoginModal();
     }
   } catch (err) {
@@ -437,6 +442,8 @@ function populateConfigFields(cfg) {
   if (cfg.defaultSheetTab !== undefined && sheetTabInput) sheetTabInput.value = cfg.defaultSheetTab;
   if (cfg.phoneColumn !== undefined && phoneColInput) phoneColInput.value = cfg.phoneColumn;
   if (cfg.defaultCountryCode !== undefined && countryCodeInput) countryCodeInput.value = cfg.defaultCountryCode;
+  if (cfg.directPhoneList !== undefined && directPhoneListInput) directPhoneListInput.value = cfg.directPhoneList;
+  if (cfg.skipPhoneList !== undefined && skipPhoneListInput) skipPhoneListInput.value = cfg.skipPhoneList;
 
   if (cfg.template !== undefined && templateInput) {
     templateInput.value = cfg.template;
@@ -492,6 +499,8 @@ function handleSaveConfig() {
     defaultSheetTab: sheetTabInput ? sheetTabInput.value.trim() : '',
     phoneColumn: phoneColInput ? phoneColInput.value.trim() : 'Phone',
     defaultCountryCode: countryCodeInput ? countryCodeInput.value.trim() : 'US',
+    directPhoneList: directPhoneListInput ? directPhoneListInput.value : '',
+    skipPhoneList: skipPhoneListInput ? skipPhoneListInput.value : '',
     template: templateInput ? templateInput.value : '',
     delayBetweenMessagesMs: delayInput ? (parseInt(delayInput.value, 10) || 3000) : 3000
   };
@@ -547,8 +556,11 @@ function handleTriggerBroadcast() {
   let mediaItems = [];
 
   const sheets = sheetUrlsInput ? sheetUrlsInput.value.split('\n').map(s => s.trim()).filter(Boolean) : [];
-  if (sheets.length === 0) {
-    alert('Please enter at least one Google Spreadsheet URL.');
+  const directPhoneList = directPhoneListInput ? directPhoneListInput.value.trim() : '';
+  const skipPhoneList = skipPhoneListInput ? skipPhoneListInput.value.trim() : '';
+
+  if (sheets.length === 0 && !directPhoneList) {
+    alert('Please enter at least one Google Spreadsheet URL OR paste WhatsApp numbers into the Direct Phone Numbers list.');
     return;
   }
 
@@ -566,10 +578,17 @@ function handleTriggerBroadcast() {
       }
     }
 
-    if (confirm(`Are you sure you want to trigger the WhatsApp broadcast to contacts extracted from ${sheets.length} spreadsheet(s)?`)) {
+    const targetDesc = [
+      sheets.length > 0 ? `${sheets.length} spreadsheet(s)` : '',
+      directPhoneList ? 'direct phone list' : ''
+    ].filter(Boolean).join(' and ');
+
+    if (confirm(`Are you sure you want to trigger the WhatsApp broadcast to contacts extracted from ${targetDesc}?`)) {
       socket.emit('start_broadcast', {
         sheets,
         sheetName: sheetTabInput ? sheetTabInput.value.trim() : '',
+        directPhoneList,
+        skipPhoneList,
         template: templateInput ? templateInput.value : '',
         phoneColumn: phoneColInput ? phoneColInput.value.trim() : 'Phone',
         defaultCountryCode: countryCodeInput ? countryCodeInput.value.trim() : 'US',

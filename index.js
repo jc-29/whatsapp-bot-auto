@@ -72,8 +72,79 @@ const defaultConfig = {
   authRequired: true,
   adminPassword: "admin",
   googleClientId: "",
-  allowedEmails: []
+  allowedEmails: [],
+  directPhoneList: "",
+  skipPhoneList: ""
 };
+
+/**
+ * Parses raw text or array input into an array of phone number strings.
+ */
+function parsePhoneListInput(input) {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return input.flatMap(item => parsePhoneListInput(item));
+  }
+  if (typeof input === 'string') {
+    return input
+      .split(/[\n,;]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Normalizes raw phone number into formatted JID and digit string.
+ */
+function normalizePhoneNumber(rawPhone, countryCode) {
+  if (!rawPhone) return { formattedJid: null, digits: '' };
+  const trimmed = String(rawPhone).trim();
+  const digits = trimmed.replace(/\D/g, '');
+  let phoneNumberObj = parsePhoneNumberFromString(trimmed, countryCode);
+  if (!phoneNumberObj && digits) {
+    phoneNumberObj = parsePhoneNumberFromString('+' + digits);
+  }
+  let formattedJid = null;
+  if (phoneNumberObj && phoneNumberObj.isValid()) {
+    formattedJid = phoneNumberObj.number.replace('+', '') + '@c.us';
+  } else if (digits.length >= 7) {
+    formattedJid = digits + '@c.us';
+  }
+  return { formattedJid, digits };
+}
+
+/**
+ * Builds set of formatted JIDs and digits for quick skip lookup.
+ */
+function buildSkipSet(skipInput, countryCode) {
+  const skipJids = new Set();
+  const skipDigits = new Set();
+  const rawList = parsePhoneListInput(skipInput);
+  for (const raw of rawList) {
+    const { formattedJid, digits } = normalizePhoneNumber(raw, countryCode);
+    if (formattedJid) skipJids.add(formattedJid);
+    if (digits) skipDigits.add(digits);
+  }
+  return { skipJids, skipDigits };
+}
+
+/**
+ * Checks if formatted JID or digits matches any entry in the skip set.
+ */
+function isNumberInSkipSet(formattedJid, digits, skipSet) {
+  if (!formattedJid && !digits) return false;
+  if (formattedJid && skipSet.skipJids.has(formattedJid)) return true;
+  if (digits && skipSet.skipDigits.has(digits)) return true;
+  if (digits && digits.length >= 7) {
+    for (const skipDigit of skipSet.skipDigits) {
+      if (skipDigit.length >= 7 && (digits.endsWith(skipDigit) || skipDigit.endsWith(digits))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Load or create config.json
 function loadConfig() {
@@ -262,7 +333,7 @@ client.on('message_create', async (msg) => {
 });
 
 /**
- * Executes Google Spreadsheet WhatsApp Broadcast pipeline.
+ * Executes WhatsApp Broadcast pipeline (Spreadsheets + Direct pasted list with Skip list filtering).
  * @param {Object} [overrideParams]
  * @returns {Promise<{ success: number, failed: number, total: number }>}
  */
@@ -274,76 +345,96 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
     throw new Error(errMsg);
   }
 
-  const sheetsToProcess = overrideParams.sheets || config.sheets || [];
+  const sheetsToProcess = overrideParams.sheets !== undefined ? overrideParams.sheets : (config.sheets || []);
+  const directListInput = overrideParams.directPhoneList !== undefined ? overrideParams.directPhoneList : (config.directPhoneList || '');
+  const skipListInput = overrideParams.skipPhoneList !== undefined ? overrideParams.skipPhoneList : (config.skipPhoneList || '');
   const messageTemplate = overrideParams.template || config.template || '';
   const specifiedPhoneCol = overrideParams.phoneColumn || config.phoneColumn || 'Phone';
   const delayMs = overrideParams.delayBetweenMessagesMs || config.delayBetweenMessagesMs || 3000;
   const countryCode = overrideParams.defaultCountryCode || config.defaultCountryCode || 'US';
   const mediaItems = overrideParams.mediaItems || [];
 
-  if (sheetsToProcess.length === 0) {
-    const errMsg = 'No Google Spreadsheets specified in configuration.';
-    logMessage(errMsg, 'error');
-    io.emit('broadcast_error', errMsg);
-    throw new Error(errMsg);
-  }
+  const directNumbers = parsePhoneListInput(directListInput);
+  const skipSet = buildSkipSet(skipListInput, countryCode);
 
-  logMessage(`Starting Google Spreadsheet processing (${sheetsToProcess.length} sheet(s))...`, 'info');
-
-  const targetTabName = overrideParams.targetSheetTab || overrideParams.sheetName || config.defaultSheetTab || '';
   let allContacts = [];
   const seenRawDigits = new Set();
 
-  // 1. Fetch & extract contacts from all sheets
-  for (const sheetUrl of sheetsToProcess) {
-    if (!sheetUrl || !sheetUrl.trim()) continue;
-    try {
-      logMessage(`Fetching sheet: ${sheetUrl}${targetTabName ? ` (Tab: ${targetTabName})` : ''}`, 'info');
-      const { headers, rows, totalRows } = await fetchSheetData(sheetUrl, { sheetName: targetTabName });
-      logMessage(`Fetched ${totalRows} rows from spreadsheet tab. Headers: ${headers.join(', ')}`, 'success');
-
-      const phoneCol = findPhoneColumn(headers, specifiedPhoneCol);
-      if (!phoneCol) {
-        logMessage(`Could not identify phone column in sheet ${sheetUrl}. Headers available: ${headers.join(', ')}`, 'warning');
-        continue;
-      }
-
-      logMessage(`Using column '${phoneCol}' for phone numbers.`, 'info');
-
-      for (const row of rows) {
-        const rawPhone = row[phoneCol];
-        if (rawPhone && String(rawPhone).trim()) {
-          const trimmedPhone = String(rawPhone).trim();
-          const digits = trimmedPhone.replace(/\D/g, '');
-
-          // Deduplicate duplicate numbers during extraction
-          if (digits) {
-            if (seenRawDigits.has(digits)) {
-              continue;
-            }
-            seenRawDigits.add(digits);
-          }
-
-          allContacts.push({
-            rawPhone: trimmedPhone,
-            rowData: row,
-            sheetUrl
-          });
+  // 1. Extract direct pasted phone numbers
+  if (directNumbers.length > 0) {
+    logMessage(`Extracted ${directNumbers.length} direct target phone number(s).`, 'info');
+    for (const rawPhone of directNumbers) {
+      const trimmedPhone = String(rawPhone).trim();
+      const digits = trimmedPhone.replace(/\D/g, '');
+      if (digits) {
+        if (seenRawDigits.has(digits)) {
+          continue;
         }
+        seenRawDigits.add(digits);
       }
-    } catch (err) {
-      logMessage(`Error loading sheet ${sheetUrl}: ${err.message}`, 'error');
+      allContacts.push({
+        rawPhone: trimmedPhone,
+        rowData: { Phone: trimmedPhone, Number: trimmedPhone },
+        source: 'Direct List'
+      });
+    }
+  }
+
+  // 2. Fetch & extract contacts from all sheets
+  if (sheetsToProcess.length > 0) {
+    logMessage(`Starting Google Spreadsheet processing (${sheetsToProcess.length} sheet(s))...`, 'info');
+    const targetTabName = overrideParams.targetSheetTab || overrideParams.sheetName || config.defaultSheetTab || '';
+
+    for (const sheetUrl of sheetsToProcess) {
+      if (!sheetUrl || !sheetUrl.trim()) continue;
+      try {
+        logMessage(`Fetching sheet: ${sheetUrl}${targetTabName ? ` (Tab: ${targetTabName})` : ''}`, 'info');
+        const { headers, rows, totalRows } = await fetchSheetData(sheetUrl, { sheetName: targetTabName });
+        logMessage(`Fetched ${totalRows} rows from spreadsheet tab. Headers: ${headers.join(', ')}`, 'success');
+
+        const phoneCol = findPhoneColumn(headers, specifiedPhoneCol);
+        if (!phoneCol) {
+          logMessage(`Could not identify phone column in sheet ${sheetUrl}. Headers available: ${headers.join(', ')}`, 'warning');
+          continue;
+        }
+
+        logMessage(`Using column '${phoneCol}' for phone numbers.`, 'info');
+
+        for (const row of rows) {
+          const rawPhone = row[phoneCol];
+          if (rawPhone && String(rawPhone).trim()) {
+            const trimmedPhone = String(rawPhone).trim();
+            const digits = trimmedPhone.replace(/\D/g, '');
+
+            // Deduplicate duplicate numbers during extraction
+            if (digits) {
+              if (seenRawDigits.has(digits)) {
+                continue;
+              }
+              seenRawDigits.add(digits);
+            }
+
+            allContacts.push({
+              rawPhone: trimmedPhone,
+              rowData: row,
+              sheetUrl
+            });
+          }
+        }
+      } catch (err) {
+        logMessage(`Error loading sheet ${sheetUrl}: ${err.message}`, 'error');
+      }
     }
   }
 
   if (allContacts.length === 0) {
-    const errMsg = 'No valid contact phone numbers extracted from the spreadsheets.';
+    const errMsg = 'No valid contact phone numbers extracted from spreadsheets or direct list.';
     logMessage(errMsg, 'error');
     io.emit('broadcast_error', errMsg);
     return { success: 0, failed: 0, total: 0 };
   }
 
-  logMessage(`Extracted total ${allContacts.length} recipient candidates. Starting messaging pipeline...`, 'info');
+  logMessage(`Extracted total ${allContacts.length} recipient candidate(s). Starting messaging pipeline...`, 'info');
   io.emit('broadcast_start', { total: allContacts.length });
 
   // Prepare optional media attachments
@@ -364,26 +455,13 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
   let successCount = 0;
   let failCount = 0;
   const processedJids = new Set();
+  const processedDigits = new Set();
 
   for (let i = 0; i < allContacts.length; i++) {
     const contact = allContacts[i];
     const { rawPhone, rowData } = contact;
 
-    // Parse phone number using libphonenumber-js
-    let phoneNumberObj = parsePhoneNumberFromString(rawPhone, countryCode);
-    if (!phoneNumberObj) {
-      phoneNumberObj = parsePhoneNumberFromString('+' + rawPhone.replace(/\D/g, ''));
-    }
-
-    let formattedJid = null;
-    if (phoneNumberObj && phoneNumberObj.isValid()) {
-      formattedJid = phoneNumberObj.number.replace('+', '') + '@c.us';
-    } else {
-      const digits = rawPhone.replace(/\D/g, '');
-      if (digits.length >= 7) {
-        formattedJid = digits + '@c.us';
-      }
-    }
+    const { formattedJid, digits } = normalizePhoneNumber(rawPhone, countryCode);
 
     if (!formattedJid) {
       failCount++;
@@ -393,15 +471,26 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
       continue;
     }
 
-    // Deduplicate
-    if (processedJids.has(formattedJid)) {
+    // Check Skip List
+    if (isNumberInSkipSet(formattedJid, digits, skipSet)) {
       failCount++;
-      logMessage(`[${i + 1}/${allContacts.length}] ⏭️ ${rawPhone} (${formattedJid}): Duplicate number skipped`, 'warning');
-      io.emit('message_status', { index: i + 1, total: allContacts.length, number: rawPhone, status: 'skipped', reason: 'Duplicate number' });
+      const reason = 'In skip list';
+      logMessage(`[${i + 1}/${allContacts.length}] 🚫 ${rawPhone} (${formattedJid}): Number is in skip list - skipped`, 'warning');
+      io.emit('message_status', { index: i + 1, total: allContacts.length, number: rawPhone, status: 'skipped', reason });
+      continue;
+    }
+
+    // Check Deduplication
+    if (processedJids.has(formattedJid) || (digits && processedDigits.has(digits))) {
+      failCount++;
+      const reason = 'Duplicate number';
+      logMessage(`[${i + 1}/${allContacts.length}] ⏭️ ${rawPhone} (${formattedJid}): Duplicate number - skipped`, 'warning');
+      io.emit('message_status', { index: i + 1, total: allContacts.length, number: rawPhone, status: 'skipped', reason });
       continue;
     }
 
     processedJids.add(formattedJid);
+    if (digits) processedDigits.add(digits);
 
     // Replace template variables
     const finalMessageText = substituteTemplate(messageTemplate, rowData);

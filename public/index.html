@@ -5,12 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WhatsApp Spreadsheet & Codeword Automation Bot</title>
   <meta name="description" content="Free WhatsApp automation tool that reads Google Spreadsheets, substitutes dynamic message templates, and sends messages when activated via codewords on WhatsApp or Webhooks.">
-  <!-- Google Fonts -->
+  <!-- Resource Hints & Preconnects for Fast LCP -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+  <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-  <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- FontAwesome Icons (Asynchronous Non-Blocking Load) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
   <link rel="stylesheet" href="styles.css">
   <!-- Google Identity Services SDK -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -189,6 +193,24 @@
                 <label for="country-code-input">Default Country</label>
                 <input type="text" id="country-code-input" class="form-control" placeholder="US, MY, IN..." />
               </div>
+            </div>
+
+            <!-- Direct Target Numbers Section -->
+            <div class="form-group mt-3">
+              <label for="direct-phone-list-input">
+                <i class="fa-solid fa-address-book"></i> Direct WhatsApp Phone Numbers List (Without Spreadsheet)
+              </label>
+              <textarea id="direct-phone-list-input" rows="3" class="form-control code-font" placeholder="e.g. +60123456789&#10;+19876543210&#10;+447123456789"></textarea>
+              <span class="help-text">Paste WhatsApp numbers directly (one per line or comma-separated). The message will only be sent <strong>once per number</strong> even if repeated.</span>
+            </div>
+
+            <!-- Skip / Avoid Numbers Section -->
+            <div class="form-group mt-3">
+              <label for="skip-phone-list-input">
+                <i class="fa-solid fa-user-slash text-danger"></i> Numbers to Skip / Avoid Sending To
+              </label>
+              <textarea id="skip-phone-list-input" rows="2" class="form-control code-font" placeholder="e.g. +60111222333, +18005550199"></textarea>
+              <span class="help-text">Paste numbers to exclude from broadcast (one per line or comma-separated). These numbers will be skipped automatically.</span>
             </div>
 
             <!-- Sheet Preview Modal / Box -->

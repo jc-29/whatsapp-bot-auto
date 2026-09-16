@@ -15,5 +15,7 @@
   "allowedEmails": [
     "jonathanchng703@gmail.com"
   ],
-  "defaultSheetTab": ""
+  "defaultSheetTab": "",
+  "directPhoneList": "",
+  "skipPhoneList": ""
 }
