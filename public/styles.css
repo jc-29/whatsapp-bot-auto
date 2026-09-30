@@ -253,6 +253,7 @@ body.logged-out .app-wrapper {
   gap: 14px;
 }
 
+.col-3 { flex: 0 0 calc(25% - 10px); }
 .col-4 { flex: 0 0 calc(33.33% - 9px); }
 .col-5 { flex: 0 0 calc(41.66% - 7px); }
 .col-6 { flex: 0 0 calc(50% - 7px); }
@@ -473,6 +474,17 @@ textarea.form-control {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.btn-danger {
+  background: linear-gradient(135deg, var(--status-danger), #dc2626);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+}
+
+.btn-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+}
+
 .btn-outline-danger {
   background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.4);
@@ -644,9 +656,16 @@ textarea.form-control {
 .progress-info {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 0.82rem;
   font-weight: 600;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .progress-bar-track {

@@ -74,7 +74,8 @@ const defaultConfig = {
   googleClientId: "",
   allowedEmails: [],
   directPhoneList: "",
-  skipPhoneList: ""
+  skipPhoneList: "",
+  sendMediaMode: "document"
 };
 
 /**
@@ -144,6 +145,33 @@ function isNumberInSkipSet(formattedJid, digits, skipSet) {
     }
   }
   return false;
+}
+
+/**
+ * Safely executes a Puppeteer / WhatsApp client operation with retry handling
+ * for detached frame, context destruction, or navigation events.
+ */
+async function safeExecuteWWeb(operationFn, maxRetries = 2, delayMs = 2000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operationFn();
+    } catch (err) {
+      const errStr = String(err && (err.message || err));
+      const isDetachedFrame =
+        errStr.includes('detached Frame') ||
+        errStr.includes('context was destroyed') ||
+        errStr.includes('Target closed') ||
+        errStr.includes('Session closed') ||
+        errStr.includes('Execution context');
+
+      if (isDetachedFrame && attempt < maxRetries) {
+        logMessage(`⚠️ Puppeteer frame re-navigated (Attempt ${attempt}/${maxRetries}). Waiting ${delayMs}ms for session sync...`, 'warning');
+        await new Promise(r => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 // Load or create config.json
@@ -246,7 +274,8 @@ console.log('Puppeteer Executable Path:', executablePath || 'Default Puppeteer b
 const client = new Client({
   authStrategy: new LocalAuth(),
   webVersionCache: {
-    type: 'local'
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wwebjs/web-dapi/main/html/2.3000.1018944837-v2.html'
   },
   puppeteer: {
     headless: true,
@@ -353,6 +382,7 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
   const delayMs = overrideParams.delayBetweenMessagesMs || config.delayBetweenMessagesMs || 3000;
   const countryCode = overrideParams.defaultCountryCode || config.defaultCountryCode || 'US';
   const mediaItems = overrideParams.mediaItems || [];
+  const sendMediaMode = overrideParams.sendMediaMode || config.sendMediaMode || 'document';
 
   const directNumbers = parsePhoneListInput(directListInput);
   const skipSet = buildSkipSet(skipListInput, countryCode);
@@ -458,6 +488,15 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
   const processedDigits = new Set();
 
   for (let i = 0; i < allContacts.length; i++) {
+    if (triggerManager.stopRequested) {
+      const stopMsg = `🛑 Broadcast stopped by user at contact ${i + 1} of ${allContacts.length}.`;
+      logMessage(stopMsg, 'warning');
+      const summary = { success: successCount, failed: failCount, total: allContacts.length, stopped: true, stoppedAtIndex: i + 1 };
+      io.emit('broadcast_stopped', summary);
+      io.emit('broadcast_complete', summary);
+      return summary;
+    }
+
     const contact = allContacts[i];
     const { rawPhone, rowData } = contact;
 
@@ -496,9 +535,9 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
     const finalMessageText = substituteTemplate(messageTemplate, rowData);
 
     try {
-      // Check if number is registered on WhatsApp
-      const isRegistered = await client.isRegisteredUser(formattedJid);
-      if (!isRegistered) {
+      // Check if number is registered on WhatsApp and get resolved Wid
+      const numberId = await safeExecuteWWeb(() => client.getNumberId(formattedJid));
+      if (!numberId || !numberId._serialized) {
         failCount++;
         const reason = 'Not registered on WhatsApp';
         logMessage(`[${i + 1}/${allContacts.length}] ⚠️ ${rawPhone}: ${reason}`, 'warning');
@@ -506,26 +545,55 @@ async function executeSpreadsheetBroadcast(overrideParams = {}) {
         continue;
       }
 
+      const targetJid = numberId._serialized;
+
       // Send Media or Text Message
       if (msgMedias.length > 0) {
         for (let j = 0; j < msgMedias.length; j++) {
           const opts = (j === 0 && finalMessageText) ? { caption: finalMessageText } : {};
-          await client.sendMessage(formattedJid, msgMedias[j], opts);
+          if (sendMediaMode === 'hd') {
+            opts.sendMediaAsHd = true;
+          } else if (sendMediaMode === 'document') {
+            opts.sendMediaAsDocument = true;
+          }
+
+          try {
+            await safeExecuteWWeb(() => client.sendMessage(targetJid, msgMedias[j], opts));
+          } catch (sendErr) {
+            const errStr = String(sendErr && (sendErr.message || sendErr));
+            if (opts.sendMediaAsHd && (errStr.includes('getter must include an id property') || errStr.includes('memoize'))) {
+              logMessage(`⚠️ WhatsApp HD mode error detected (${errStr}). Retrying in Document Mode (Full Quality)...`, 'warning');
+              delete opts.sendMediaAsHd;
+              opts.sendMediaAsDocument = true;
+              await safeExecuteWWeb(() => client.sendMessage(targetJid, msgMedias[j], opts));
+            } else if (opts.sendMediaAsDocument && (errStr.includes('getter must include an id property') || errStr.includes('memoize'))) {
+              logMessage(`⚠️ Document mode internal cache error detected. Retrying as standard media attachment...`, 'warning');
+              delete opts.sendMediaAsDocument;
+              await safeExecuteWWeb(() => client.sendMessage(targetJid, msgMedias[j], opts));
+            } else {
+              throw sendErr;
+            }
+          }
+
           if (j < msgMedias.length - 1) {
             await new Promise(r => setTimeout(r, 500));
           }
         }
       } else if (finalMessageText) {
-        await client.sendMessage(formattedJid, finalMessageText);
+        await safeExecuteWWeb(() => client.sendMessage(targetJid, finalMessageText));
       }
 
       successCount++;
       logMessage(`[${i + 1}/${allContacts.length}] ✅ Sent successfully to ${rawPhone} (${formattedJid})`, 'success');
       io.emit('message_status', { index: i + 1, total: allContacts.length, number: rawPhone, status: 'success' });
 
-      // Anti-spam delay between messages
+      // Anti-spam delay between messages (interruptible by stop request)
       if (i < allContacts.length - 1 && delayMs > 0) {
-        await new Promise(r => setTimeout(r, delayMs));
+        const startTime = Date.now();
+        while (Date.now() - startTime < delayMs) {
+          if (triggerManager.stopRequested) break;
+          await new Promise(r => setTimeout(r, 100));
+        }
       }
     } catch (err) {
       failCount++;
@@ -686,6 +754,15 @@ app.all('/api/trigger', async (req, res) => {
   }
 });
 
+app.post('/api/broadcast/stop', verifyAuthMiddleware, (req, res) => {
+  const stopped = triggerManager.requestStop();
+  if (stopped) {
+    res.json({ success: true, message: 'Broadcast stop requested successfully' });
+  } else {
+    res.status(400).json({ success: false, error: 'No active broadcast is running to stop' });
+  }
+});
+
 app.get('/api/status', (req, res) => {
   res.json({
     success: true,
@@ -736,6 +813,14 @@ io.on('connection', (socket) => {
       await triggerManager.executeTrigger({ source: 'Web Dashboard', sender: 'Admin', ...overrideData });
     } catch (err) {
       socket.emit('broadcast_error', err.message);
+    }
+  });
+
+  socket.on('stop_broadcast', () => {
+    logMessage('Stop broadcast requested from Web Dashboard.', 'warning');
+    const stopped = triggerManager.requestStop();
+    if (!stopped) {
+      socket.emit('broadcast_error', 'No active broadcast is running to stop.');
     }
   });
 

@@ -265,11 +265,19 @@
             </div>
 
             <div class="form-row mt-3">
-              <div class="form-group col-7">
+              <div class="form-group col-5">
                 <label for="media-file-input"><i class="fa-solid fa-paperclip"></i> Attach Media (Optional)</label>
                 <input type="file" id="media-file-input" class="form-control-file" accept="image/*,video/*,application/pdf" multiple />
               </div>
-              <div class="form-group col-5">
+              <div class="form-group col-4">
+                <label for="send-media-mode-select"><i class="fa-solid fa-image"></i> Image Quality Mode</label>
+                <select id="send-media-mode-select" class="form-control">
+                  <option value="document">Original Document (Uncompressed - Recommended)</option>
+                  <option value="hd">HD High Resolution</option>
+                  <option value="standard">Standard Compressed</option>
+                </select>
+              </div>
+              <div class="form-group col-3">
                 <label for="delay-input"><i class="fa-solid fa-clock"></i> Anti-Spam Delay</label>
                 <div class="input-suffix">
                   <input type="number" id="delay-input" class="form-control" value="3000" min="500" step="500" />
@@ -281,6 +289,9 @@
             <div class="action-buttons-row mt-4">
               <button id="trigger-now-btn" class="btn btn-primary btn-lg">
                 <i class="fa-solid fa-paper-plane"></i> Launch Broadcast Now
+              </button>
+              <button id="stop-broadcast-btn" class="btn btn-danger btn-lg" style="display: none;">
+                <i class="fa-solid fa-circle-stop"></i> Stop Broadcast
               </button>
             </div>
 
@@ -309,7 +320,12 @@
           <div id="progress-container" class="progress-container" style="display: none;">
             <div class="progress-info">
               <span id="progress-text">Sending 0 of 0...</span>
-              <span id="progress-percent">0%</span>
+              <div class="progress-actions">
+                <button id="stop-broadcast-progress-btn" class="btn btn-sm btn-danger" style="display: none;">
+                  <i class="fa-solid fa-circle-stop"></i> Stop Broadcast
+                </button>
+                <span id="progress-percent">0%</span>
+              </div>
             </div>
             <div class="progress-bar-track">
               <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>

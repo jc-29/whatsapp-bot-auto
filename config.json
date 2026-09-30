@@ -17,5 +17,6 @@
   ],
   "defaultSheetTab": "",
   "directPhoneList": "",
-  "skipPhoneList": ""
+  "skipPhoneList": "",
+  "sendMediaMode": "document"
 }

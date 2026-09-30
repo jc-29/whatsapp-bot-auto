@@ -31,7 +31,7 @@ let googleClientIdInput, allowedEmailsInput, adminPasswordInput, authRequiredChe
 let codewordInput, adminNumbersInput, webhookSecretInput, saveConfigBtn;
 let sheetUrlsInput, sheetTabInput, phoneColInput, countryCodeInput, previewSheetBtn, directPhoneListInput, skipPhoneListInput;
 let sheetPreviewBox, previewTotalRows, previewTable, detectedTagsChips;
-let templateInput, whatsappPreviewText, mediaFileInput, delayInput, triggerNowBtn;
+let templateInput, whatsappPreviewText, mediaFileInput, sendMediaModeSelect, delayInput, triggerNowBtn, stopBroadcastBtn, stopBroadcastProgressBtn;
 let logsBox, logCountBadge, clearLogsBtn;
 let progressContainer, progressText, progressPercent, progressBarFill;
 
@@ -102,8 +102,11 @@ function bindDashboardElements() {
   templateInput = document.getElementById('template-input');
   whatsappPreviewText = document.getElementById('whatsapp-preview-text');
   mediaFileInput = document.getElementById('media-file-input');
+  sendMediaModeSelect = document.getElementById('send-media-mode-select');
   delayInput = document.getElementById('delay-input');
   triggerNowBtn = document.getElementById('trigger-now-btn');
+  stopBroadcastBtn = document.getElementById('stop-broadcast-btn');
+  stopBroadcastProgressBtn = document.getElementById('stop-broadcast-progress-btn');
 
   logsBox = document.getElementById('logs-box');
   logCountBadge = document.getElementById('log-count');
@@ -119,6 +122,8 @@ function bindDashboardElements() {
   if (saveConfigBtn) saveConfigBtn.addEventListener('click', handleSaveConfig);
   if (previewSheetBtn) previewSheetBtn.addEventListener('click', handlePreviewSheet);
   if (triggerNowBtn) triggerNowBtn.addEventListener('click', handleTriggerBroadcast);
+  if (stopBroadcastBtn) stopBroadcastBtn.addEventListener('click', handleStopBroadcast);
+  if (stopBroadcastProgressBtn) stopBroadcastProgressBtn.addEventListener('click', handleStopBroadcast);
   if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
   if (clearLogsBtn) clearLogsBtn.addEventListener('click', handleClearLogs);
   if (lockScreenBtn) lockScreenBtn.addEventListener('click', handleLockScreen);
@@ -449,7 +454,24 @@ function populateConfigFields(cfg) {
     templateInput.value = cfg.template;
     updateLivePreview();
   }
+  if (cfg.sendMediaMode !== undefined && sendMediaModeSelect) sendMediaModeSelect.value = cfg.sendMediaMode;
   if (cfg.delayBetweenMessagesMs !== undefined && delayInput) delayInput.value = cfg.delayBetweenMessagesMs;
+}
+
+function resetBroadcastButtons() {
+  if (triggerNowBtn) {
+    triggerNowBtn.style.display = 'inline-flex';
+    triggerNowBtn.disabled = false;
+  }
+  if (stopBroadcastBtn) stopBroadcastBtn.style.display = 'none';
+  if (stopBroadcastProgressBtn) stopBroadcastProgressBtn.style.display = 'none';
+}
+
+function handleStopBroadcast() {
+  if (confirm('Are you sure you want to stop the active broadcast sending process?')) {
+    socket.emit('stop_broadcast');
+    appendLog(null, 'Stop broadcast request sent to server...', 'warning');
+  }
 }
 
 // Progress & Broadcast events
@@ -458,8 +480,16 @@ socket.on('broadcast_start', (data) => {
   progressContainer.style.display = 'block';
   if (progressText) progressText.textContent = `Processing 0 of ${data.total}...`;
   if (progressPercent) progressPercent.textContent = '0%';
-  if (progressBarFill) progressBarFill.style.width = '0%';
-  if (triggerNowBtn) triggerNowBtn.disabled = true;
+  if (progressBarFill) {
+    progressBarFill.style.width = '0%';
+    progressBarFill.style.backgroundColor = '';
+  }
+  if (triggerNowBtn) {
+    triggerNowBtn.style.display = 'none';
+    triggerNowBtn.disabled = true;
+  }
+  if (stopBroadcastBtn) stopBroadcastBtn.style.display = 'inline-flex';
+  if (stopBroadcastProgressBtn) stopBroadcastProgressBtn.style.display = 'inline-flex';
 });
 
 socket.on('message_status', (data) => {
@@ -471,15 +501,29 @@ socket.on('message_status', (data) => {
 });
 
 socket.on('broadcast_complete', (summary) => {
+  if (summary.stopped) return; // Handled by broadcast_stopped
   if (progressText) progressText.textContent = `Completed! Sent: ${summary.success}, Failed: ${summary.failed}, Total: ${summary.total}`;
   if (progressPercent) progressPercent.textContent = '100%';
   if (progressBarFill) progressBarFill.style.width = '100%';
-  if (triggerNowBtn) triggerNowBtn.disabled = false;
+  resetBroadcastButtons();
+});
+
+socket.on('broadcast_stopped', (summary) => {
+  const stoppedAt = summary.stoppedAtIndex || (summary.success + summary.failed);
+  if (progressText) progressText.textContent = `🛑 Broadcast Stopped! Sent: ${summary.success}, Failed/Skipped: ${summary.failed}, Total: ${summary.total}`;
+  if (progressPercent) progressPercent.textContent = 'Stopped';
+  if (progressBarFill) {
+    const pct = Math.round((stoppedAt / summary.total) * 100);
+    progressBarFill.style.width = `${pct}%`;
+    progressBarFill.style.backgroundColor = 'var(--status-danger, #ef4444)';
+  }
+  resetBroadcastButtons();
+  appendLog(null, `Broadcast stopped by user request. (Stopped at contact ${stoppedAt} of ${summary.total})`, 'warning');
 });
 
 socket.on('broadcast_error', (errMsg) => {
   alert(`Broadcast Error: ${errMsg}`);
-  if (triggerNowBtn) triggerNowBtn.disabled = false;
+  resetBroadcastButtons();
 });
 
 function handleSaveConfig() {
@@ -502,6 +546,7 @@ function handleSaveConfig() {
     directPhoneList: directPhoneListInput ? directPhoneListInput.value : '',
     skipPhoneList: skipPhoneListInput ? skipPhoneListInput.value : '',
     template: templateInput ? templateInput.value : '',
+    sendMediaMode: sendMediaModeSelect ? sendMediaModeSelect.value : 'hd',
     delayBetweenMessagesMs: delayInput ? (parseInt(delayInput.value, 10) || 3000) : 3000
   };
 
@@ -592,6 +637,7 @@ function handleTriggerBroadcast() {
         template: templateInput ? templateInput.value : '',
         phoneColumn: phoneColInput ? phoneColInput.value.trim() : 'Phone',
         defaultCountryCode: countryCodeInput ? countryCodeInput.value.trim() : 'US',
+        sendMediaMode: sendMediaModeSelect ? sendMediaModeSelect.value : 'hd',
         delayBetweenMessagesMs: delayInput ? (parseInt(delayInput.value, 10) || 3000) : 3000,
         mediaItems
       });
